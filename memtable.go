@@ -103,7 +103,7 @@ func (db *DB) openMemTable(fid, flags int) (*memTable, error) {
 		buf: &bytes.Buffer{},
 	}
 	// We don't need to create the wal for the skiplist in in-memory mode so return the mt.
-	if db.opt.InMemory {
+	if db.opt.InMemory || db.opt.SkipWAL {
 		return mt, z.NewFile
 	}
 
@@ -145,7 +145,7 @@ func (db *DB) newMemTable() (*memTable, error) {
 		db.opt.Errorf("Got error: %v for id: %d\n", err, db.nextMemFid)
 		return nil, y.Wrapf(err, "newMemTable")
 	}
-	return nil, fmt.Errorf("File %s already exists", mt.wal.Fd.Name())
+	return nil, fmt.Errorf("File already exists")
 }
 
 func (db *DB) mtFilePath(fid int) string {
@@ -153,6 +153,9 @@ func (db *DB) mtFilePath(fid int) string {
 }
 
 func (mt *memTable) SyncWAL() error {
+	if mt.wal == nil {
+		return nil
+	}
 	return mt.wal.Sync()
 }
 
@@ -160,7 +163,7 @@ func (mt *memTable) isFull() bool {
 	if mt.sl.MemSize() >= mt.opt.MemTableSize {
 		return true
 	}
-	if mt.opt.InMemory {
+	if mt.opt.InMemory || mt.opt.SkipWAL {
 		// InMemory mode doesn't have any WAL.
 		return false
 	}

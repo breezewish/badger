@@ -44,6 +44,7 @@ type Options struct {
 	Logger            Logger
 	Compression       options.CompressionType
 	InMemory          bool
+	SkipWAL           bool
 	MetricsEnabled    bool
 	// Sets the Stream.numGo field
 	NumGoroutines int
