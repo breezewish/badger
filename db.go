@@ -1141,7 +1141,7 @@ func exists(path string) (bool, error) {
 // This function does a filewalk, calculates the size of vlog and sst files and stores it in
 // y.LSMSize and y.VlogSize.
 func (db *DB) calculateSize() {
-	if db.opt.InMemory {
+	if db.opt.InMemory || !db.opt.MetricsEnabled {
 		return
 	}
 	newInt := func(val int64) *expvar.Int {
@@ -1182,7 +1182,7 @@ func (db *DB) calculateSize() {
 
 func (db *DB) updateSize(lc *z.Closer) {
 	defer lc.Done()
-	if db.opt.InMemory {
+	if db.opt.InMemory || !db.opt.MetricsEnabled {
 		return
 	}
 
