@@ -651,8 +651,10 @@ func (db *DB) close() (err error) {
 	if syncErr := db.syncDir(db.opt.Dir); err == nil {
 		err = y.Wrap(syncErr, "DB.Close")
 	}
-	if syncErr := db.syncDir(db.opt.ValueDir); err == nil {
-		err = y.Wrap(syncErr, "DB.Close")
+	if db.opt.ValueDir != db.opt.Dir {
+		if syncErr := db.syncDir(db.opt.ValueDir); err == nil {
+			err = y.Wrap(syncErr, "DB.Close")
+		}
 	}
 
 	return err
@@ -1955,7 +1957,11 @@ func (db *DB) syncDir(dir string) error {
 }
 
 func createDirs(opt Options) error {
-	for _, path := range []string{opt.Dir, opt.ValueDir} {
+	paths := []string{opt.Dir}
+	if opt.ValueDir != opt.Dir {
+		paths = append(paths, opt.ValueDir)
+	}
+	for _, path := range paths {
 		dirExists, err := exists(path)
 		if err != nil {
 			return y.Wrapf(err, "Invalid Dir: %q", path)

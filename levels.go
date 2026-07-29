@@ -43,26 +43,28 @@ type levelsController struct {
 // revertToManifest checks that all necessary table files exist and removes all table files not
 // referenced by the manifest. idMap is a set of table file id's that were read from the directory
 // listing.
-func revertToManifest(kv *DB, mf *Manifest, idMap map[uint64]struct{}) error {
+func revertToManifest(kv *DB, mf *Manifest, idMap map[uint64]struct{}) (bool, error) {
 	// 1. Check all files in manifest exist.
 	for id := range mf.Tables {
 		if _, ok := idMap[id]; !ok {
-			return fmt.Errorf("file does not exist for table %d", id)
+			return false, fmt.Errorf("file does not exist for table %d", id)
 		}
 	}
 
 	// 2. Delete files that shouldn't exist.
+	removed := false
 	for id := range idMap {
 		if _, ok := mf.Tables[id]; !ok {
 			kv.opt.Debugf("Table file %d not referenced in MANIFEST\n", id)
 			filename := table.NewFilename(id, kv.opt.Dir)
 			if err := os.Remove(filename); err != nil {
-				return y.Wrapf(err, "While removing table %d", id)
+				return false, y.Wrapf(err, "While removing table %d", id)
 			}
+			removed = true
 		}
 	}
 
-	return nil
+	return removed, nil
 }
 
 func newLevelsController(db *DB, mf *Manifest) (*levelsController, error) {
@@ -83,7 +85,8 @@ func newLevelsController(db *DB, mf *Manifest) (*levelsController, error) {
 		return s, nil
 	}
 	// Compare manifest against directory, check for existent/non-existent files, and remove.
-	if err := revertToManifest(db, mf, getIDMap(db.opt.Dir)); err != nil {
+	removedFiles, err := revertToManifest(db, mf, getIDMap(db.opt.Dir))
+	if err != nil {
 		return nil, err
 	}
 
@@ -171,11 +174,11 @@ func newLevelsController(db *DB, mf *Manifest) (*levelsController, error) {
 		return nil, y.Wrap(err, "Level validation")
 	}
 
-	// Sync directory (because we have at least removed some files, or previously created the
-	// manifest file).
-	if err := syncDir(db.opt.Dir); err != nil {
-		_ = s.close()
-		return nil, err
+	if removedFiles {
+		if err := syncDir(db.opt.Dir); err != nil {
+			_ = s.close()
+			return nil, err
+		}
 	}
 
 	return s, nil
