@@ -602,6 +602,15 @@ func (vlog *valueLog) open(db *DB) error {
 	if err != nil {
 		return y.Wrapf(err, "while iterating over: %s", last.path)
 	}
+	// An unencrypted header-only log contains no recovery state. Reuse it instead
+	// of replacing it with another empty file on every open. Encrypted logs still
+	// rotate so reopening the database can pick up a newly rotated data key.
+	if len(vlog.opt.EncryptionKey) == 0 &&
+		lastOff == vlogHeaderSize && last.size.Load() == vlogHeaderSize {
+		vlog.writableLogOffset.Store(vlogHeaderSize)
+		vlog.numEntriesWritten = 0
+		return nil
+	}
 	if err := last.Truncate(int64(lastOff)); err != nil {
 		return y.Wrapf(err, "while truncating last value log file: %s", last.path)
 	}

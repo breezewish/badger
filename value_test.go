@@ -64,6 +64,18 @@ func TestDynamicValueThreshold(t *testing.T) {
 	require.Equal(t, log.db.valueThreshold(), int64(995))
 }
 
+func TestValueLogReusesEmptyFileAcrossOpen(t *testing.T) {
+	dir := t.TempDir()
+	opts := getTestOptions(dir)
+
+	for range 3 {
+		db, err := Open(opts)
+		require.NoError(t, err)
+		require.Equal(t, []uint32{1}, db.vlog.sortedFids())
+		require.NoError(t, db.Close())
+	}
+}
+
 func TestValueBasic(t *testing.T) {
 	dir, err := os.MkdirTemp("", "badger-test")
 	y.Check(err)
@@ -1050,8 +1062,8 @@ func TestValueLogTruncate(t *testing.T) {
 	fileCountAfterCorruption := len(db.Tables()) + len(db.imm) + 1 // +1 for db.mt
 	// We should have one memtable and one sst file.
 	require.Equal(t, fileCountBeforeCorruption+1, fileCountAfterCorruption)
-	// maxFid will be 2 because we increment the max fid on DB open everytime.
-	require.Equal(t, 2, int(db.vlog.maxFid))
+	// Reopening keeps the existing header-only plaintext value log.
+	require.Equal(t, 1, int(db.vlog.maxFid))
 	require.NoError(t, db.Close())
 }
 
