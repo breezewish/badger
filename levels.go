@@ -394,6 +394,32 @@ func (s *levelsController) levelTargets() targets {
 		dbSize /= int64(s.kv.opt.LevelSizeMultiplier)
 	}
 
+	// Bring the base level down to the last empty level.
+	for i := t.baseLevel + 1; i < len(s.levels)-1; i++ {
+		if s.levels[i].getTotalSize() > 0 {
+			break
+		}
+		t.baseLevel = i
+	}
+
+	// If the base level is empty and the next level size is less than the
+	// target size, pick the next level as the base level.
+	b := t.baseLevel
+	lvl := s.levels
+	if b < len(lvl)-1 && lvl[b].getTotalSize() == 0 && lvl[b+1].getTotalSize() < t.targetSz[b+1] {
+		t.baseLevel++
+	}
+	// Shrinking the last level can move the size-derived base below populated
+	// levels. L0 must include the first such level: skipping it can discard a
+	// tombstone while its older value survives there, or put a newer value below
+	// an older one. Size targets alone do not establish an empty level.
+	for level := 1; level < t.baseLevel; level++ {
+		if s.levels[level].numTables() > 0 {
+			t.baseLevel = level
+			break
+		}
+	}
+
 	tsz := s.kv.opt.BaseTableSize
 	for i := 0; i < len(s.levels); i++ {
 		if i == 0 {
@@ -410,21 +436,6 @@ func (s *levelsController) levelTargets() targets {
 		}
 	}
 
-	// Bring the base level down to the last empty level.
-	for i := t.baseLevel + 1; i < len(s.levels)-1; i++ {
-		if s.levels[i].getTotalSize() > 0 {
-			break
-		}
-		t.baseLevel = i
-	}
-
-	// If the base level is empty and the next level size is less than the
-	// target size, pick the next level as the base level.
-	b := t.baseLevel
-	lvl := s.levels
-	if b < len(lvl)-1 && lvl[b].getTotalSize() == 0 && lvl[b+1].getTotalSize() < t.targetSz[b+1] {
-		t.baseLevel++
-	}
 	return t
 }
 
