@@ -1290,3 +1290,49 @@ func TestStaleDataCleanup(t *testing.T) {
 
 	})
 }
+
+// A small last level must not send L0 past older values in an intermediate
+// level. Otherwise compaction drops deletion markers or hides newer values.
+func TestCompactionDoesNotResurrectDeletedKeys(t *testing.T) {
+	opt := DefaultOptions("").WithNumCompactors(0).WithNumVersionsToKeep(1)
+	opt.managedTxns = true
+	runBadgerTest(t, &opt, func(t *testing.T, db *DB) {
+		createAndOpen(db, []keyValVersion{{"deleted", "old", 1, 0}, {"updated", "old", 1, 0}}, 5)
+		createAndOpen(db, []keyValVersion{{"untouched", "kept", 1, 0}}, 6)
+		createAndOpen(db, []keyValVersion{{"deleted", "", 2, bitDelete}, {"updated", "new", 2, 0}}, 0)
+		db.lc.levels[0].initTables(db.lc.levels[0].tables)
+		db.lc.levels[5].initTables(db.lc.levels[5].tables)
+		db.lc.levels[6].initTables(db.lc.levels[6].tables)
+		db.SetDiscardTs(10)
+
+		before := db.NewTransactionAt(10, false)
+		_, err := before.Get([]byte("deleted"))
+		require.ErrorIs(t, err, ErrKeyNotFound)
+		before.Discard()
+
+		target := db.lc.levelTargets()
+		cd := compactDef{
+			thisLevel: db.lc.levels[0],
+			nextLevel: db.lc.levels[target.baseLevel],
+			top:       db.lc.levels[0].tables,
+			bot:       db.lc.levels[target.baseLevel].tables,
+			t:         target,
+		}
+		require.NoError(t, db.lc.runCompactDef(-1, 0, cd))
+
+		after := db.NewTransactionAt(10, false)
+		defer after.Discard()
+		_, err = after.Get([]byte("deleted"))
+		require.ErrorIs(t, err, ErrKeyNotFound)
+		item, err := after.Get([]byte("updated"))
+		require.NoError(t, err)
+		value, err := item.ValueCopy(nil)
+		require.NoError(t, err)
+		require.Equal(t, []byte("new"), value)
+		item, err = after.Get([]byte("untouched"))
+		require.NoError(t, err)
+		value, err = item.ValueCopy(nil)
+		require.NoError(t, err)
+		require.Equal(t, []byte("kept"), value)
+	})
+}
